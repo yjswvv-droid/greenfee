@@ -1,0 +1,1618 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>골프장 그린피 비교</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<script type="module">
+  // 캐디 가용표와 같은 Firebase 프로젝트 사용. 그린피는 별도 경로(greenfee)에 저장.
+  // gfCloud를 먼저 안전하게 정의(초기화 실패해도 앱이 멈추지 않게)
+  window.gfCloud = { ready:false, save:function(){return Promise.resolve();}, load:function(){return Promise.resolve(null);}, subscribe:function(){}, saveHol:function(){return Promise.resolve();}, loadHol:function(){return Promise.resolve(null);}, subscribeHol:function(){} };
+
+  try {
+  const { initializeApp } = await import("https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js");
+  const { getDatabase, ref, set, get, onValue } = await import("https://www.gstatic.com/firebasejs/12.13.0/firebase-database.js");
+  const { getAuth, signInAnonymously, setPersistence, browserLocalPersistence } = await import("https://www.gstatic.com/firebasejs/12.13.0/firebase-auth.js");
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDbQyd-b5StGfOf33kDYQZd8-bw3mJETPg",
+    authDomain: "yjsw-grand.firebaseapp.com",
+    databaseURL: "https://yjsw-grand-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "yjsw-grand",
+    storageBucket: "yjsw-grand.firebasestorage.app",
+    messagingSenderId: "572650294249",
+    appId: "1:572650294249:web:c55f616bf51707154f9978"
+  };
+  const fbApp = initializeApp(firebaseConfig);
+  const fbDb = getDatabase(fbApp);
+  const fbAuth = getAuth(fbApp);
+  setPersistence(fbAuth, browserLocalPersistence).catch(function(){});
+
+  // 그린피 전용 경로
+  var GF_PATH = 'greenfee/db';
+  var GF_HOL_PATH = 'greenfee/holidays';
+
+  // 전역으로 노출 (일반 스크립트에서 사용)
+  window.gfCloud = {
+    ready: false,
+    // 클라우드에 전체 DB 저장
+    save: function(obj){
+      if(!this.ready) return Promise.resolve();
+      return set(ref(fbDb, GF_PATH), { data: JSON.stringify(obj), at: Date.now() }).catch(function(e){ console.warn('[gf] save 실패', e); });
+    },
+    // 클라우드에서 한 번 읽기
+    load: function(){
+      if(!this.ready) return Promise.resolve(null);
+      return get(ref(fbDb, GF_PATH)).then(function(snap){
+        var v = snap.val();
+        if(v && v.data){ try { return JSON.parse(v.data); } catch(e){ return null; } }
+        return null;
+      }).catch(function(){ return null; });
+    },
+    // 실시간 구독 (다른 기기/사람이 바꾸면 콜백)
+    subscribe: function(cb){
+      if(!this.ready) return;
+      onValue(ref(fbDb, GF_PATH), function(snap){
+        var v = snap.val();
+        if(v && v.data){ try { cb(JSON.parse(v.data)); } catch(e){} }
+      });
+    },
+    // 공휴일 지정 저장/읽기/구독
+    saveHol: function(obj){
+      if(!this.ready) return Promise.resolve();
+      return set(ref(fbDb, GF_HOL_PATH), { data: JSON.stringify(obj), at: Date.now() }).catch(function(){});
+    },
+    loadHol: function(){
+      if(!this.ready) return Promise.resolve(null);
+      return get(ref(fbDb, GF_HOL_PATH)).then(function(snap){
+        var v = snap.val();
+        if(v && v.data){ try { return JSON.parse(v.data); } catch(e){ return null; } }
+        return null;
+      }).catch(function(){ return null; });
+    },
+    subscribeHol: function(cb){
+      if(!this.ready) return;
+      onValue(ref(fbDb, GF_HOL_PATH), function(snap){
+        var v = snap.val();
+        if(v && v.data){ try { cb(JSON.parse(v.data)); } catch(e){} }
+      });
+    }
+  };
+
+  // greenfee 경로는 보안규칙에서 인증 없이 읽기·쓰기 허용됨 → 로그인 없이도 바로 사용 가능
+  window.gfCloud.ready = true;
+  if(window.__gfCloudReady) window.__gfCloudReady();
+  // 익명 로그인은 시도하되(가능하면), 실패해도 greenfee 저장에는 영향 없음
+  signInAnonymously(fbAuth).catch(function(e){
+    console.warn('[gf] 익명 로그인 실패(무시 가능) — greenfee는 인증 없이 저장됨', e);
+  });
+  } catch(err){
+    console.error('[gf] Firebase 초기화 실패 — 로컬 저장만 사용됩니다', err);
+  }
+</script>
+
+<style>
+  :root{
+    --primary:#2D5F3E; --primary-light:#4A8B5C; --primary-warm:#6B9F7B;
+    --secondary:#FF9F45; --accent:#FFD166; --sky:#5BA9E0; --coral:#EF6F6C;
+    --bg-color:#F4F6F8; --card-bg:#FFFFFF;
+    --text-main:#2A2A3F; --text-muted:#6B6B8A; --text-soft:#9B9BB5;
+    --border-light:#E7E0CF; --special:#D8453E; --hl:#FFF1D6;
+    --radius:18px; --radius-sm:12px; --radius-lg:24px;
+    --shadow-sm:0 2px 4px rgba(45,95,62,.08),0 1px 2px rgba(45,95,62,.04);
+    --shadow-md:0 6px 12px rgba(45,95,62,.10),0 3px 6px rgba(45,95,62,.06);
+    --shadow-lg:0 12px 24px rgba(45,95,62,.12),0 6px 12px rgba(45,95,62,.08);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; color:var(--text-main); letter-spacing:-0.01em; line-height:1.5;
+    font-family:'Pretendard','Malgun Gothic',sans-serif;
+    background:var(--bg-color);
+    background-image:
+      radial-gradient(circle at 10% 20%, rgba(255,209,102,.06) 0%, transparent 50%),
+      radial-gradient(circle at 90% 80%, rgba(91,169,224,.06) 0%, transparent 50%),
+      radial-gradient(circle at 50% 50%, rgba(45,95,62,.03) 0%, transparent 70%);
+    background-attachment:fixed;}
+
+  header{position:relative; overflow:hidden; color:#fff;
+    background:linear-gradient(135deg,#2D5F3E 0%,#1A3D2A 50%,#143524 100%);
+    padding:24px 28px; border-radius:0 0 var(--radius-lg) var(--radius-lg);
+    box-shadow:0 12px 28px rgba(20,53,36,.22), inset 0 1px 0 rgba(255,255,255,.15);}
+  header::before{content:''; position:absolute; top:-40%; right:-5%; width:280px; height:200px;
+    background:radial-gradient(ellipse, rgba(255,209,102,.12) 0%, transparent 60%); pointer-events:none;}
+  header h1{margin:0; font-size:20px; font-weight:700; position:relative;}
+  header p{margin:6px 0 0; font-size:13px; opacity:.9; font-weight:400; position:relative;}
+  .wrap{max-width:none; margin:0 auto; padding:20px;}
+  .layout{display:grid; grid-template-columns:272px minmax(0,1fr); gap:16px; align-items:start;}
+  .side{display:flex; flex-direction:column; gap:14px; position:sticky; top:16px;}
+  .content{min-width:0;}
+  .content #result{overflow-x:auto;}
+  @media (max-width:860px){ .layout{grid-template-columns:1fr;} .side{position:static;} }
+  .tool-group{display:flex; flex-direction:column; gap:7px;}
+  .tool-group .tbtn{justify-content:flex-start;}
+
+  .help{background:linear-gradient(135deg,#FFFEFC 0%,#FBF5E8 100%);
+    border:1px solid var(--border-light); border-radius:var(--radius);
+    padding:14px 18px; margin-bottom:18px; font-size:13px; color:var(--text-muted);
+    box-shadow:var(--shadow-sm);}
+  .help b{color:var(--primary);}
+  .help ol{margin:6px 0 0; padding-left:20px;} .help li{margin:2px 0;}
+
+  .topbar{display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-bottom:14px;}
+  .btn{padding:10px 18px; border:none; border-radius:var(--radius-sm); cursor:pointer;
+    font-family:inherit; font-size:13.5px; font-weight:600; color:#fff;
+    background:linear-gradient(135deg,var(--primary) 0%,var(--primary-light) 100%);
+    box-shadow:var(--shadow-sm); transition:transform .12s, box-shadow .12s;}
+  .btn:hover{transform:translateY(-1px); box-shadow:var(--shadow-md);}
+  .btn.sec{background:var(--card-bg); color:var(--text-main); border:1px solid var(--border-light); font-weight:500;}
+  .btn.sec:hover{background:#FBF5E8;}
+  .btn.sm{padding:7px 12px; font-size:12px;}
+  .btn:disabled{opacity:.5; cursor:default; transform:none; box-shadow:var(--shadow-sm);}
+
+  .courses{display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px; margin-bottom:16px;}
+  .ccard{background:var(--card-bg); border:1px solid var(--border-light); border-radius:var(--radius);
+    padding:14px; box-shadow:var(--shadow-sm);}
+  .ccard .hd{display:flex; gap:8px; align-items:center; margin-bottom:8px;}
+  .ccard input.name{flex:1; padding:8px 10px; border:1px solid var(--border-light); border-radius:var(--radius-sm);
+    font-family:inherit; font-size:14px; font-weight:600; color:var(--primary); background:#fff;}
+  .ccard textarea{width:100%; min-height:92px; padding:10px; border:1px solid var(--border-light);
+    border-radius:var(--radius-sm); font-size:12.5px; resize:vertical; font-family:inherit; color:var(--text-main);}
+  .ccard .st{font-size:11.5px; color:var(--text-muted); margin-top:6px; min-height:16px;}
+  .ccard .st.ok{color:var(--primary-light);}
+  .ccard .st.warn{color:var(--secondary);}
+  .del{cursor:pointer; color:var(--text-soft); font-size:18px; line-height:1; padding:0 4px;}
+  .del:hover{color:var(--special);}
+
+  .date-field{display:flex; flex-direction:column; gap:4px;}
+  .date-field label{font-size:12px; color:var(--text-muted); font-weight:500;}
+  input[type=date].dateinput{padding:11px 14px; border:2px solid var(--primary-warm); border-radius:var(--radius-sm);
+    font-family:inherit; font-size:16px; min-width:200px; color:var(--primary); cursor:pointer; background:#fff;
+    box-shadow:var(--shadow-sm);}
+
+  h2{font-size:16px; color:var(--primary); font-weight:700; margin:24px 2px 12px;}
+  .content > h2#result-title{display:none !important;}
+  .matrix-wrap{overflow-x:auto; background:#fff; border:1px solid #DCE1E5;
+    border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,.06); padding:0;}
+  table{border-collapse:separate; border-spacing:0; width:100%; font-size:13.5px; table-layout:fixed; background:#fff;}
+  th,td{border-bottom:1px solid #EAEDF0; border-right:none;
+    padding:0 10px; height:44px; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; vertical-align:middle;}
+  /* 칸 폭 고정: 부 / 시간대 / 골프장들 */
+  col.col-part{width:50px;} col.col-band{width:76px;} col.col-course{width:auto; min-width:128px;}
+  col.col-trend{width:64px;}
+  .course-head{border-bottom:1px solid rgba(255,255,255,.25)!important;}
+  .grp-head{font-size:11px; font-weight:700; background:#fff; color:#374151; border-bottom:1px solid #EAEDF0;}
+  .grp-head.hol{color:var(--special);}
+  .grp-date{display:block; font-size:10px; font-weight:700; color:#6B7280; line-height:1.15; margin-bottom:1px;}
+  .grp-head.hol .grp-date{color:var(--special);}
+  .hol-tag{display:block; font-size:8px; font-weight:500; color:var(--special); line-height:1.1; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;}
+  .hol-col{color:var(--special); font-weight:700;}
+  /* 헤더: 초록 한 줄, 깔끔하게 */
+  thead th{color:#fff; font-weight:700; font-size:13.5px; letter-spacing:-.2px; position:sticky; top:0;
+    background:var(--primary); height:46px; border-bottom:none;}
+  thead th:first-child{border-top-left-radius:8px;}
+  thead th:last-child{border-top-right-radius:8px;}
+  tbody tr:last-child td{border-bottom:none;}
+  /* 골프장 구분: 옅은 세로선만 (시원하게) */
+  tbody td:nth-child(n+3), thead th:nth-child(n+3){border-left:1px solid #EEF1F3;}
+  .part-cell{background:#fff; font-weight:700; color:var(--primary); font-size:13.5px; border-right:1px solid #EAEDF0;}
+  tbody tr.part-start:not(:first-child) td{border-top:1.5px solid #C7D0CA;}
+  /* 요일별: 헤더와 첫 데이터 행 사이 구분선 (부 경계와 같은 톤) */
+  .trend-wrap tbody tr:first-child td{border-top:1.5px solid #C7D0CA;}
+  .trend-wrap thead .grp-head{border-bottom:1.5px solid #C7D0CA;}
+  .band-cell{background:#fff; font-weight:600; font-size:13px; text-align:center; color:#6B7280; border-right:1px solid #EAEDF0;}
+  /* 줄무늬: 아주 은은하게 */
+  tbody tr:nth-child(even) td.val{background:#FAFBFC;}
+  tbody tr:hover td{background:#EAF3EC;}
+  td.val{font-variant-numeric:tabular-nums; font-weight:700; font-size:14px; color:#1F2937; line-height:1.25;}
+  /* 요일별 비교: 열이 많아 좁으므로 숫자 기본 축소 + 넘치면 단계적으로 더 축소 */
+  .trend-wrap td.val{font-size:12px;}
+  .trend-wrap td.val .special{font-size:10px;}
+  .trend-wrap.shrink1 td.val{font-size:11px;}
+  .trend-wrap.shrink1 td.val .special{font-size:9px;}
+  .trend-wrap.shrink1 col.col-trend{width:54px;}
+  .trend-wrap.shrink2 td.val{font-size:10px;}
+  .trend-wrap.shrink2 td.val .special{font-size:8.5px;}
+  .trend-wrap.shrink2 td.band-cell, .trend-wrap.shrink2 thead th{font-size:11px;}
+  .trend-wrap.shrink2 col.col-trend{width:46px;}
+  .trend-wrap.shrink2 col.col-band{width:64px;}
+  .trend-wrap td,.trend-wrap th{padding:0 4px;}
+  .trend-wrap tbody td{height:38px;}
+  .trend-wrap.shrink1 td,.trend-wrap.shrink1 th{padding:0 3px;}
+  .trend-wrap.shrink2 td,.trend-wrap.shrink2 th{padding:0 2px;}
+  .normal{color:#1F2937;}
+  /* 주말 열(요일별 비교): 아주 옅은 빨강 */
+  /* 주말: 헤더 날짜/요일을 빨강으로, 본문 숫자도 빨강 */
+  td.weekend{background:transparent;}
+  tbody tr:nth-child(even) td.weekend{background:#FAFBFC;}
+  td.weekend.val, td.weekend .normal{color:#D8453E;}
+  th.weekend.grp-head{background:#fff;}
+  th.weekend.grp-head, th.weekend .grp-date{color:#D8453E;}
+  /* 주말 묶음 양옆에만 옅은 구분선 */
+  th.wkstart, td.wkstart{border-left:2px solid #E8C4C2;}
+  th.wkend, td.wkend{border-right:2px solid #E8C4C2;}
+  /* 요일 열 클릭 강조: 모든 골프장의 같은 요일 */
+  .trend-wrap .col-hi.hi{background:#FFF4D6 !important;}
+  .trend-wrap thead th.col-hi.hi{background:#E5B94A !important; color:#3a2e0a !important;}
+  .trend-wrap thead th.col-hi.hi .grp-date{color:#5a4a14 !important;}
+  .tw-badge{display:inline-block; font-size:9px; font-weight:700; color:#fff; background:#C98A2E; border-radius:4px; padding:1px 4px; vertical-align:middle; margin-left:2px;}
+
+  /* 상단 툴바 */
+  .toolbar{background:var(--card-bg); border:1px solid var(--border-light); border-radius:var(--radius); box-shadow:var(--shadow-sm); padding:14px 16px; display:flex; flex-direction:column; gap:12px;}
+  .toolbar-date{font-size:15px; color:var(--primary); font-weight:700;}
+  .toolbar-row{display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
+  .toolbar-spacer{flex:1 1 auto;}
+  .toolbar .seg{display:flex;}
+  .toolbar .seg-btn{flex:1; text-align:center;}
+  /* 세그먼트 토글(날짜별/요일별) */
+  .seg{display:inline-flex; border:1px solid var(--border-light); border-radius:10px; overflow:hidden; background:#fff;}
+  .seg-btn{border:none; background:transparent; padding:9px 18px; font-size:13.5px; font-weight:600; color:var(--text-muted); cursor:pointer; transition:background .12s,color .12s;}
+  .seg-btn + .seg-btn{border-left:1px solid var(--border-light);}
+  .seg-btn.on{background:var(--primary); color:#fff;}
+  .seg-btn:not(.on):hover{background:var(--hl);}
+  /* 보조 도구 버튼 */
+  .tbtn{display:inline-flex; align-items:center; gap:5px; border:1px solid var(--border-light); background:#fff; color:var(--text-main); padding:8px 13px; border-radius:9px; font-size:13px; font-weight:600; cursor:pointer; transition:background .12s,border-color .12s;}
+  .tbtn:hover:not(:disabled){background:var(--hl); border-color:var(--primary-light);}
+  .tbtn:disabled{opacity:.45; cursor:default;}
+  .tbtn.on{background:var(--secondary); border-color:var(--secondary); color:#fff;}
+  .tbtn-ic{font-size:13px; line-height:1; color:var(--primary);}
+  .tbtn.on .tbtn-ic{color:#fff;}
+  /* 설정 모달 */
+  .modal-overlay{position:fixed; inset:0; background:rgba(20,30,24,.45); display:flex; align-items:center; justify-content:center; z-index:100; padding:20px;}
+  .modal-box{background:var(--card-bg); border-radius:14px; box-shadow:0 12px 40px rgba(0,0,0,.25); padding:20px 22px; width:100%; max-width:440px; height:520px; max-height:85vh; overflow:auto; display:flex; flex-direction:column;}
+  .modal-box .mtab-panel{flex:1;}
+  .modal-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;}
+  .modal-head b{font-size:17px; color:var(--primary);}
+  .modal-x{border:none; background:none; font-size:24px; line-height:1; color:var(--text-soft); cursor:pointer;}
+  .modal-x:hover{color:var(--special);}
+  .modal-desc{font-size:12.5px; color:var(--text-muted); line-height:1.6; margin:0 0 14px;}
+  .part-row{display:flex; align-items:center; gap:8px; margin-bottom:8px; padding:8px 10px; border:1px solid var(--border-light); border-radius:10px; background:#fff;}
+  .part-row input.pname{width:54px; padding:6px 6px; border:1px solid var(--border-light); border-radius:7px; font-size:13px; text-align:center; font-weight:600; color:var(--primary);}
+  .part-row select{padding:6px 6px; border:1px solid var(--border-light); border-radius:7px; font-size:13px;}
+  .part-row .sep{color:var(--text-muted); font-size:12px;}
+  .part-row .del{margin-left:auto; border:none; background:none; color:var(--text-soft); font-size:18px; cursor:pointer; line-height:1;}
+  .part-row .del:hover{color:var(--special);}
+  .modal-foot{display:flex; align-items:center; gap:8px; margin-top:16px;}
+  .modal-tabs{display:flex; gap:4px; border-bottom:1px solid var(--border-light); margin-bottom:14px;}
+  .mtab{border:none; background:none; padding:9px 14px; font-size:13.5px; font-weight:600; color:var(--text-muted); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px;}
+  .mtab.on{color:var(--primary); border-bottom-color:var(--primary);}
+  .mtab-panel{min-height:200px;}
+  .rule-card{border:1px solid var(--border-light); border-radius:10px; padding:11px 12px; margin-bottom:10px; background:#fff;}
+  .rule-card .rule-head{display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:12.5px; color:var(--text-muted);}
+  .rule-card .rule-head input[type=date]{padding:5px 7px; border:1px solid var(--border-light); border-radius:7px; font-size:12.5px;}
+  .rule-card .rule-del{margin-left:auto; border:none; background:none; color:var(--text-soft); font-size:17px; cursor:pointer;}
+  .rule-card .rule-del:hover{color:var(--special);}
+  .rule-card .rule-base{font-weight:700; color:var(--primary);}
+  .hol-reason-row{display:flex; align-items:center; gap:8px; margin-bottom:8px;}
+  .hol-reason-row .hd{font-size:12.5px; color:var(--special); font-weight:600; white-space:nowrap; min-width:84px;}
+  .hol-reason-row input{flex:1; padding:6px 9px; border:1px solid var(--border-light); border-radius:7px; font-size:13px;}
+  .edit-cell{padding:5px 6px !important;}
+  .edit-cell .ed-row{display:flex; gap:4px; align-items:center;}
+  .edit-cell input.ed-n, .edit-cell input.ed-s{flex:1; min-width:0; padding:6px 4px; border:1px solid var(--border-light); border-radius:6px; font-size:13px; text-align:center;}
+  .edit-cell input.ed-s{color:var(--special);}
+  .edit-cell .ed-tw{display:inline-flex; align-items:center; gap:3px; font-size:11px; font-weight:600; color:var(--text-muted); cursor:pointer; white-space:nowrap; flex-shrink:0;}
+  .edit-cell .ed-tw input{margin:0; width:14px; height:14px;}
+  .matrix-wrap.edit-active{background:#FCF6E6; box-shadow:inset 0 0 0 2px var(--secondary);}
+  .matrix-wrap.edit-active table{background:#FFFDF5;}
+  td.val.has-val{position:relative;}
+  .cell-del{position:absolute; top:1px; right:2px; font-size:11px; color:var(--text-soft); cursor:pointer; opacity:0; transition:opacity .1s; line-height:1;}
+  td.val.has-val:hover .cell-del{opacity:.7;}
+  .cell-del:hover{opacity:1 !important; color:var(--special);}
+  .course-del{margin-left:6px; font-size:12px; color:rgba(255,255,255,.55); cursor:pointer;}
+  .course-del:hover{color:#fff;}
+  .special{display:inline-block; color:var(--special); font-size:11px; font-weight:700; margin-top:1px;}
+  .old{color:var(--text-soft); text-decoration:line-through; font-weight:500;}
+  .new{color:var(--text-main); font-weight:800;}
+  .arr{margin:0 3px; font-size:11px; font-weight:700;}
+  .arr.down{color:var(--sky);} .arr.up{color:var(--special);}
+  .min-mark{background:linear-gradient(135deg,#FFF1D6 0%,#FFE7B0 100%); font-weight:800;}
+  .empty{padding:34px; text-align:center; color:var(--text-muted);}
+  .datetab{padding:8px 14px; border:1px solid var(--border-light); border-radius:22px; background:var(--card-bg);
+    cursor:pointer; font-family:inherit; font-size:13px; color:var(--text-main); font-weight:500;
+    display:inline-flex; align-items:center; gap:7px; box-shadow:var(--shadow-sm); transition:transform .12s;}
+  .datetab:hover{transform:translateY(-1px); background:#FBF5E8;}
+  .datetab.on{color:#fff; border-color:transparent;
+    background:linear-gradient(135deg,var(--primary) 0%,var(--primary-light) 100%);}
+  .datetab .x{font-size:15px; opacity:.6;}
+  .datetab .x:hover{opacity:1;}
+  .modebtn.on{color:#fff; background:linear-gradient(135deg,var(--sky) 0%,#4A95CC 100%);}
+  .trend-low{background:linear-gradient(135deg,#FFF1D6 0%,#FFE7B0 100%); font-weight:800;}
+  .note{font-size:11.5px; color:var(--text-muted); margin:10px 2px 0;}
+  select{font-family:inherit;}
+  
+  /* FIXED CALENDAR GRID STYLES */
+  .calgrid{display:grid; grid-template-columns:repeat(7,minmax(0, 1fr)); grid-template-rows:max-content; grid-auto-rows:34px; gap:4px; align-content:start;}
+  .caldow{margin:0; text-align:center; font-size:11.5px; font-weight:600; color:var(--text-muted); line-height:1; padding-bottom:2px; display:flex; align-items:center; justify-content:center;}
+  .caldow.sun{color:var(--coral);} .caldow.sat{color:var(--sky);}
+  .calcell{margin:0; position:relative; min-width:0; border:1px solid var(--border-light);
+    border-radius:7px; background:#fff; cursor:pointer; font-size:12.5px; color:var(--text-main);
+    display:flex; align-items:center; justify-content:center; font-weight:500; transition:transform .1s;}
+  .calcell:hover{transform:translateY(-1px); box-shadow:var(--shadow-sm); background:#FBF5E8;}
+  .calcell.empty{border:1px solid transparent; background:transparent; cursor:default; pointer-events:none;}
+  .calcell.empty:hover{transform:none; box-shadow:none; background:transparent;}
+  .calcell.has::after{content:''; position:absolute; bottom:3px; left:50%; transform:translateX(-50%);
+    width:6px; height:6px; border-radius:50%; background:var(--secondary);}
+  .calcell.on{color:#fff; border-color:transparent; font-weight:700;
+    background:linear-gradient(135deg,var(--primary) 0%,var(--primary-light) 100%);}
+  .calcell.on.has::after{background:#fff;}
+  .calcell.sun{color:var(--coral);} .calcell.sat{color:var(--sky);}
+  .calcell.on.sun,.calcell.on.sat{color:#fff;}
+  .caldel{position:absolute; top:2px; right:4px; font-size:12px; color:var(--text-soft); line-height:1; opacity:0; transition:opacity .1s;}
+  .calcell:hover .caldel{opacity:.7;}
+  .caldel:hover{opacity:1 !important; color:var(--special);}
+  .calcell.on .caldel{color:rgba(255,255,255,.8);}
+  .calcell.holiday{color:var(--coral);}
+  .calcell.holiday::before{content:''; position:absolute; top:3px; left:4px; width:5px; height:5px; border-radius:50%; background:var(--coral);}
+  .calcell.on.holiday::before{background:#fff;}
+  .hol-list{margin-top:9px; padding-top:8px; border-top:1px dashed var(--border-light); display:flex; flex-wrap:wrap; gap:5px 12px; font-size:11.5px; color:var(--text-muted);}
+  .hol-list b{color:var(--coral); font-weight:700;}
+</style>
+</head>
+<body>
+<header>
+  <h1>⛳ 골프장 그린피 비교</h1>
+  <p>골프장별 예약표를 즐겨찾기로 모아 시간대 × 골프장으로 비교합니다. 날짜별 비교와 요일별 비교를 함께 볼 수 있어요.</p>
+</header>
+
+<div class="wrap">
+  <div class="layout">
+    <aside class="side">
+      <div id="calCard" style="background:var(--card-bg);border:1px solid var(--border-light);border-radius:var(--radius);box-shadow:var(--shadow-sm);padding:11px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <button class="btn sec sm" id="calPrev">‹</button>
+          <div id="calTitle" style="font-size:14px;font-weight:700;color:var(--primary);"></div>
+          <button class="btn sec sm" id="calNext">›</button>
+        </div>
+        <div id="calGrid"></div>
+      </div>
+
+      <div id="menuPanel" class="toolbar">
+        <div id="dateLabel" class="toolbar-date"></div>
+        <div class="seg" role="group" aria-label="보기 방식">
+          <button class="seg-btn on" id="modeCompare">날짜별</button>
+          <button class="seg-btn" id="modeTrend">요일별</button>
+        </div>
+        <select id="trendPicker" style="display:none;padding:8px 10px;border:1px solid var(--border-light);border-radius:var(--radius-sm);font-size:13px"></select>
+        <div class="tool-group">
+          <button class="tbtn" id="toggleManual"><span class="tbtn-ic">＋</span>그린피 직접입력</button>
+          <button class="tbtn" id="export" disabled><span class="tbtn-ic">↓</span>엑셀</button>
+          <button class="tbtn" id="openSettings"><span class="tbtn-ic">⚙</span>설정</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="content">
+      <input type="hidden" id="datePicker">
+      <button id="build" style="display:none"></button>
+      <div id="manualNote" style="display:none"></div>
+
+      <div class="courses" id="courses" style="display:none"></div>
+      <div id="manualExtra" style="display:none;margin-bottom:16px">
+        <button class="btn sec sm" id="addCourse">+ 골프장 추가</button>
+      </div>
+
+      <h2 id="result-title" style="display:none">비교 매트릭스</h2>
+      <div id="result"></div>
+      <div class="note" id="result-note"></div>
+    </main>
+  </div>
+</div>
+
+<div id="settingsModal" class="modal-overlay" style="display:none">
+  <div class="modal-box">
+    <div class="modal-head">
+      <b>설정</b>
+      <button class="modal-x" id="settingsClose">×</button>
+    </div>
+    <div class="modal-tabs">
+      <button class="mtab on" data-tab="parts">부·시간대</button>
+      <button class="mtab" data-tab="manual">수동입력</button>
+      <button class="mtab" data-tab="holiday">휴일 사유</button>
+    </div>
+
+    <div class="mtab-panel" data-panel="parts">
+      <p class="modal-desc">기본은 전체 날짜에 적용됩니다. 특정 기간만 다른 부 구성을 쓰려면 아래 "기간별 규칙 추가"로 날짜 범위를 정하세요.</p>
+      <div id="partRuleWrap"></div>
+      <button class="tbtn" id="addRule" style="margin-top:8px"><span class="tbtn-ic">＋</span>기간별 규칙 추가</button>
+    </div>
+
+    <div class="mtab-panel" data-panel="manual" style="display:none">
+      <p class="modal-desc">선택한 날짜의 그린피를 표에서 직접 입력·수정합니다. 시작하면 비교표 칸이 입력칸으로 바뀝니다.</p>
+      <button class="btn" id="startManual">수동입력 시작</button>
+    </div>
+
+    <div class="mtab-panel" data-panel="holiday" style="display:none">
+      <p class="modal-desc">공휴일로 지정한 날짜의 사유(이름)를 수정할 수 있습니다. 달력에서 날짜를 우클릭하면 공휴일로 지정/해제됩니다.</p>
+      <div id="holReasonWrap"></div>
+    </div>
+
+    <div class="modal-foot">
+      <button class="btn sec" id="settingsReset">기본값으로</button>
+      <div style="flex:1"></div>
+      <button class="btn sec" id="settingsCancel">닫기</button>
+      <button class="btn" id="settingsSave">저장</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var TIME_RE = /\b([01]?\d|2[0-3]):[0-5]\d\b/;
+  var DEFAULT_NAMES = ['솔트베이','베르힐영종','골프존송도','클럽72(클래식/레이크)','클럽72(오션)'];
+  var coursesEl = document.getElementById('courses');
+  var lastMatrix = null;
+
+  function money(s){
+    if(s==null) return null;
+    s = String(s).replace(/[^\d]/g,'');
+    if(!s) return null;
+    var n = parseInt(s,10);
+    return (isNaN(n)||n<10000||n>2000000) ? null : n;
+  }
+
+  function addCourseCard(name){
+    var card = document.createElement('div');
+    card.className = 'ccard';
+    card.innerHTML =
+      '<div class="hd">'+
+        '<input class="name" type="text" value="'+(name||'')+'" placeholder="골프장 이름">'+
+        '<span class="del" title="삭제">&times;</span>'+
+      '</div>'+
+      '<textarea placeholder="이 골프장 예약표를 붙여넣으세요 (탭/공백 구분 모두 인식)"></textarea>'+
+      '<div class="st"></div>';
+    coursesEl.appendChild(card);
+    card.querySelector('.del').onclick = function(){ card.remove(); };
+    card.querySelector('textarea').addEventListener('input', function(){
+      var rows = parseCourse(this.value);
+      var st = card.querySelector('.st');
+      if(!this.value.trim()){ st.textContent=''; st.className='st'; return; }
+      if(rows.length){ st.textContent = rows.length+'개 티타임 인식됨'; st.className='st ok'; }
+      else { st.textContent = '시간/가격을 못 찾았습니다. 표 영역을 다시 복사해 보세요.'; st.className='st warn'; }
+    });
+  }
+
+  // 한 골프장 텍스트 -> [{time,hole,normal,special}]
+  // 두 형식 모두 인식:
+  //  (A) 한 줄형: "1부 OUT 06:00 18홀 280,000 -"  (탭/공백 구분)
+  //  (B) 줄바꿈형: 시간 / 코스·홀 / 구분 / 가격 / 가격  이 여러 줄에 흩어진 형태
+  function parseCourse(text){
+    var HOLE_RE = /(\d+)\s*홀/;
+    var lines = (text||'').split(/\r?\n/).map(function(s){return s.trim();})
+                          .filter(function(s){return s!=='';});
+    var rows = [];
+
+    for(var i=0;i<lines.length;i++){
+      var line = lines[i];
+      var cells = line.indexOf('\t')>=0 ? line.split('\t') : line.split(/\s{2,}|\s+/);
+      cells = cells.map(function(c){return c.trim();}).filter(function(c){return c!=='';});
+      var tIdx = -1;
+      for(var c=0;c<cells.length;c++){ if(TIME_RE.test(cells[c])){ tIdx=c; break; } }
+      if(tIdx<0) continue;
+      var time = cells[tIdx].match(TIME_RE)[0];
+
+      var fees = [];
+      var hole = '';
+      var hm = line.match(HOLE_RE); if(hm) hole = hm[1];
+
+      // (A) 같은 줄에서 가격 찾기
+      for(var j=tIdx+1;j<cells.length;j++){
+        var m = money(cells[j]);
+        if(m!==null) fees.push(m);
+        if(fees.length===2) break;
+      }
+
+      // (B) 같은 줄에 없으면 다음 줄들에서 (다음 시간 줄 전까지) 가격을 끌어온다
+      if(!fees.length){
+        for(var n=i+1; n<lines.length; n++){
+          if(TIME_RE.test(lines[n])) break;            // 다음 티타임 시작 → 중단
+          if(!hole){ var hm2 = lines[n].match(HOLE_RE); if(hm2) hole = hm2[1]; }
+          var m2 = money(lines[n]);
+          if(m2!==null){ fees.push(m2); if(fees.length===2) break; }
+        }
+      }
+
+      if(!fees.length) continue;
+      if(hole === '09' || hole === '9') continue;       // 9홀 팀 제외
+
+      var isTW = /#TW\b/i.test(line) || /일몰라운드/.test(line);
+      // 정상가와 특가가 같은 값이면 특가는 없는 것으로 처리(중복 가격 대응)
+      var normal = fees[0];
+      var special = (fees[1]!==undefined && fees[1]!==normal) ? fees[1] : null;
+      rows.push({time:time, hole:hole, normal:normal, special:special, tw:isTW});
+    }
+    return rows;
+  }
+
+  // 시간대 라벨
+  function bandKey(r){
+    return r.time.slice(0,2)+'시대';
+  }
+  // 부/시간대 설정: 규칙 목록. 각 규칙 {from,to(날짜, 없으면 기본), parts:[{part,from,to}]}
+  var PART_KEY = '__gf_partrules__';
+  var DEFAULT_PARTS = [
+    {part:'1부', from:5, to:9},
+    {part:'2부', from:10, to:14},
+    {part:'3부', from:15, to:19}
+  ];
+  function defaultRules(){ return [{parts:DEFAULT_PARTS.map(function(p){return {part:p.part,from:p.from,to:p.to};})}]; }
+  function readRules(){
+    try { var v=JSON.parse(localStorage.getItem(PART_KEY)); if(Array.isArray(v)&&v.length) return v; } catch(e){}
+    return defaultRules();
+  }
+  function writeRules(arr){
+    try { localStorage.setItem(PART_KEY, JSON.stringify(arr)); } catch(e){}
+    if(window.gfCloud && window.gfCloud.ready && window.gfCloud.saveParts){ window.gfCloud.saveParts(arr); }
+    rebuildBands();
+  }
+  // 특정 날짜에 적용할 부 구성
+  function partsForDate(dateStr){
+    var rules=readRules();
+    var ranged=rules.filter(function(r){return r.ranged && r.from && r.to;});
+    for(var i=0;i<ranged.length;i++){ if(dateStr>=ranged[i].from && dateStr<=ranged[i].to) return ranged[i].parts; }
+    var base=rules.filter(function(r){return !r.ranged;});
+    return (base.length?base[0].parts:DEFAULT_PARTS);
+  }
+  function buildBandsFrom(cfg){
+    var out=[];
+    cfg.forEach(function(p){
+      var lo=Math.min(p.from,p.to), hi=Math.max(p.from,p.to);
+      for(var h=lo; h<=hi; h++){ out.push({part:p.part, band:('0'+h).slice(-2)+'시대'}); }
+    });
+    return out;
+  }
+  var FIXED_BANDS = buildBandsFrom(partsForDate(''));
+  function rebuildBands(){ FIXED_BANDS = buildBandsFrom(partsForDate(currentViewDate||'')); }
+  function part(hour){
+    var h = parseInt(hour,10);
+    var cfg = partsForDate(currentViewDate||'');
+    for(var i=0;i<cfg.length;i++){
+      var lo=Math.min(cfg[i].from,cfg[i].to), hi=Math.max(cfg[i].from,cfg[i].to);
+      if(h>=lo && h<=hi) return cfg[i].part;
+    }
+    return cfg.length?cfg[cfg.length-1].part:'';
+  }
+  function k(n){ return Math.round(n/1000); } // 천단위 생략
+  function range(arr){
+    if(!arr.length) return '';
+    var lo=Math.min.apply(null,arr), hi=Math.max.apply(null,arr);
+    return lo===hi ? ''+k(lo) : k(lo)+'-'+k(hi); // 낮은-높은
+  }
+
+  // 골프장별 {bandKey: {normal:'', special:'', minVal:number}}
+  function aggregate(rows){
+    var g = {};
+    rows.forEach(function(r){
+      var key = bandKey(r);
+      (g[key] = g[key] || []).push(r);
+    });
+    var out = {};
+    Object.keys(g).forEach(function(key){
+      var arr = g[key];
+      var normals = arr.map(function(x){return x.normal;}).filter(function(v){return v!=null;});
+      var specials = arr.map(function(x){return x.special;}).filter(function(v){return v!=null;});
+      // 비교용 최저 실구매가 = 특가 있으면 특가 최저, 없으면 정상 최저
+      var minVal = specials.length ? Math.min.apply(null,specials) : (normals.length?Math.min.apply(null,normals):null);
+      var allTW = arr.length>0 && arr.every(function(x){return x.tw;});
+      out[key] = { normal:range(normals), special:range(specials), minVal:minVal, tw:allTW };
+    });
+    return out;
+  }
+
+  function build(){
+    var date = currentViewDate;
+    var fl = firstLastStamps(date);
+    var bands = FIXED_BANDS.map(function(b){ return b.band; });
+    var partOf = {};
+    FIXED_BANDS.forEach(function(b){ partOf[b.band] = b.part; });
+
+    // 골프장 목록: 최초/최신 시점에 등장한 모든 골프장 (기본 5개 우선 순서)
+    var firstInbox = fl.first ? inboxAt(date, fl.first) : {};
+    var lastInbox  = fl.last  ? inboxAt(date, fl.last)  : {};
+    // 정식 골프장 5개만 표시 (text 같은 엉뚱한 이름은 무시)
+    var names = DEFAULT_NAMES.slice();
+
+    // 골프장별 최초/최신 집계 (수집일이 골프장마다 달라도 각자 유지)
+    var firstByC = firstByCourse(date);
+    var lastByC  = latestByCourse(date);
+    var courses = names.map(function(n){
+      var aggFirst = firstByC[n] ? aggregate(parseCourse(firstByC[n].text||'')) : {};
+      var aggLast  = lastByC[n]  ? aggregate(parseCourse(lastByC[n].text ||'')) : {};
+      return { name:n, aggFirst:aggFirst, aggLast:aggLast };
+    });
+
+    var twoStamps = (fl.count >= 2 && fl.first !== fl.last);
+
+    // 시간대별 최저가(최신 기준, 2곳 이상일 때만 강조)
+    var bandMin = {};
+    bands.forEach(function(key){
+      var vals = courses.map(function(c){ var a=c.aggLast[key]||c.aggFirst[key]; return a?a.minVal:null; })
+                        .filter(function(v){return v!=null;});
+      bandMin[key] = vals.length >= 2 ? Math.min.apply(null,vals) : null;
+    });
+
+    function k(n){ return Math.round(n/1000); }
+    function cellHtml(c, key){
+      var cf = c.aggFirst[key], cl = c.aggLast[key];
+      function twBadge(cell){ return (cell && cell.tw) ? ' <span class="tw-badge">TW</span>' : ''; }
+      // 두 시점 비교 가능하고 둘 다 값 있음
+      if(twoStamps && cf && cl){
+        var disp;
+        if(cf.minVal!=null && cl.minVal!=null && cf.minVal!==cl.minVal){
+          var dir = cl.minVal < cf.minVal ? '▼' : '▲';
+          var cls = cl.minVal < cf.minVal ? 'down' : 'up';
+          disp = '<span class="old">'+(cf.normal||'')+'</span>'+
+                 '<span class="arr '+cls+'">'+dir+'</span>'+
+                 '<span class="new">'+(cl.normal||'')+'</span>'+twBadge(cl);
+          if(cl.special) disp += '<br><span class="special">특가 '+cl.special+'</span>';
+        } else {
+          // 변화 없음 → 최신 하나만
+          disp = '<span class="normal">'+(cl.normal||'')+'</span>'+twBadge(cl);
+          if(cl.special) disp += '<br><span class="special">특가 '+cl.special+'</span>';
+        }
+        return disp;
+      }
+      // 한 시점만 있거나, 둘 중 하나만 값
+      var cell = cl || cf;
+      if(!cell) return '';
+      var inner = '<span class="normal">'+(cell.normal||'')+'</span>'+twBadge(cell);
+      if(cell.special) inner += '<br><span class="special">특가 '+cell.special+'</span>';
+      return inner;
+    }
+
+    var html = '<div class="matrix-wrap'+(editMode?' edit-active':'')+'"><table>'+
+      '<colgroup><col class="col-part"><col class="col-band">'+
+      courses.map(function(){return '<col class="col-course">';}).join('')+'</colgroup>'+
+      '<thead><tr>'+
+      '<th>부</th><th>시간대</th>'+
+      courses.map(function(c){return '<th>'+escapeHtml(c.name)+'<span class="course-del" data-course="'+escapeHtml(c.name)+'" title="이 골프장 전체 삭제">&times;</span></th>';}).join('')+
+      '</tr></thead><tbody>';
+    var lastPart = null;
+    bands.forEach(function(key){
+      var p = partOf[key];
+      var isPartStart = (p !== lastPart);
+      html += '<tr'+(isPartStart?' class="part-start"':'')+'>';
+      if(isPartStart){
+        var span = bands.filter(function(kk){return partOf[kk]===p;}).length;
+        html += '<td class="part-cell" rowspan="'+span+'">'+p+'</td>';
+        lastPart = p;
+      }
+      html += '<td class="band-cell">'+key+'</td>';
+      courses.forEach(function(c){
+        if(editMode){
+          var ev = bandEditValue(date, c.name, key);
+          var cn = escapeHtml(c.name);
+          html += '<td class="val edit-cell">'+
+            '<div class="ed-row">'+
+              '<input class="ed-n" data-course="'+cn+'" data-band="'+key+'" data-f="normal" value="'+ev.normal+'" placeholder="정상">'+
+              '<input class="ed-s" data-course="'+cn+'" data-band="'+key+'" data-f="special" value="'+ev.special+'" placeholder="특가">'+
+              (p==='3부' ? '<label class="ed-tw" title="일몰라운드"><input type="checkbox" data-course="'+cn+'" data-band="'+key+'" data-f="tw"'+(ev.tw?' checked':'')+'>TW</label>' : '')+
+            '</div>'+
+          '</td>';
+        } else {
+          var inner = cellHtml(c, key);
+          var hasVal = !!inner;
+          html += '<td class="val'+(hasVal?' has-val':'')+'">'+inner+
+            (hasVal?'<span class="cell-del" data-course="'+escapeHtml(c.name)+'" data-band="'+key+'" title="삭제">&times;</span>':'')+
+          '</td>';
+        }
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    if(editMode){
+      html += '<div style="margin-top:12px;display:flex;gap:8px;align-items:center">'+
+        '<button class="btn" id="inlineSave">저장</button>'+
+        '<button class="btn sec" id="inlineCancel">취소</button>'+
+        '<span style="font-size:12px;color:var(--text-muted)">값을 비우면 그 시간대는 삭제됩니다. 천 단위 생략(280) 또는 전체 입력 모두 가능.</span>'+
+      '</div>';
+    }
+
+    var dlabel='';
+    if(date){ var pp=date.split('-');var dt=new Date(+pp[0],+pp[1]-1,+pp[2]);
+      dlabel=date+'('+['일','월','화','수','목','금','토'][dt.getDay()]+')'; }
+    var stampNote='';
+    if(twoStamps){ stampNote = '  ·  최초수집 '+fl.first+' → 최신수집 '+fl.last; }
+    else if(fl.last){ stampNote = '  ·  수집 '+fl.last; }
+    document.getElementById('result-title').textContent = '비교 매트릭스' + (dlabel ? '  ·  '+dlabel : '');
+    document.getElementById('result-title').style.display='';
+    document.getElementById('result').innerHTML = html;
+    document.getElementById('result-note').textContent =
+      '※ 천 단위 생략(예: 280 = 280,000원).' +
+      (twoStamps ? '  변화 칸은 [최초 → 최신], ▼내림/▲오름.'+stampNote : stampNote);
+    document.getElementById('export').disabled = false;
+
+    lastMatrix = { courses:courses, bands:bands, twoStamps:twoStamps, fl:fl };
+
+    if(editMode){
+      document.getElementById('result-title').textContent = '그린피 수동입력 · ' + (dlabel||date);
+      document.getElementById('result-note').textContent = '수동입력 모드: 칸에 직접 입력 후 저장. 방향키로 칸 이동, 값을 비우면 그 시간대 삭제.';
+      var sv=document.getElementById('inlineSave'); if(sv) sv.onclick=saveInline;
+      var cc=document.getElementById('inlineCancel'); if(cc) cc.onclick=function(){ editMode=false; var tb=document.getElementById('toggleEdit'); if(tb) tb.classList.remove('on'); var tm=document.getElementById('toggleManual'); if(tm) tm.classList.remove('on'); refreshAll(); };
+      attachArrowNav();
+    } else {
+      attachDeleteHandlers();
+    }
+  }
+
+  // 편집 입력칸 사이를 방향키로 이동 (정상/특가 입력칸 기준 그리드)
+  function attachArrowNav(){
+    var inputs = Array.prototype.slice.call(document.querySelectorAll('#result input.ed-n, #result input.ed-s'));
+    if(!inputs.length) return;
+    // 행(시간대)·열(골프장×정상특가) 좌표 매핑
+    var coord = {};   // index → {r, c}
+    var rowMap = {};  // band → row idx
+    var bandsOrder = [];
+    inputs.forEach(function(inp){
+      var band = inp.getAttribute('data-band');
+      if(rowMap[band]===undefined){ rowMap[band]=bandsOrder.length; bandsOrder.push(band); }
+    });
+    // 열 순서: DOM 순서대로 같은 band 내에서의 위치
+    var perRow = {};
+    inputs.forEach(function(inp){
+      var band=inp.getAttribute('data-band'); var r=rowMap[band];
+      perRow[r]=perRow[r]||[]; perRow[r].push(inp);
+    });
+    inputs.forEach(function(inp){
+      inp.addEventListener('keydown', function(e){
+        var band=inp.getAttribute('data-band'); var r=rowMap[band];
+        var rowArr=perRow[r]; var c=rowArr.indexOf(inp);
+        var target=null;
+        if(e.key==='ArrowRight'){ target=rowArr[c+1]; }
+        else if(e.key==='ArrowLeft'){ target=rowArr[c-1]; }
+        else if(e.key==='ArrowDown'){ var nr=perRow[r+1]; if(nr) target=nr[Math.min(c,nr.length-1)]; }
+        else if(e.key==='ArrowUp'){ var pr=perRow[r-1]; if(pr) target=pr[Math.min(c,pr.length-1)]; }
+        else if(e.key==='Enter'){ var dn=perRow[r+1]; if(dn) target=dn[Math.min(c,dn.length-1)]; }
+        if(target){ e.preventDefault(); target.focus(); target.select && target.select(); }
+      });
+    });
+  }
+
+  // 비교표에서 개별 삭제(×) + 골프장별 일괄 삭제
+  function attachDeleteHandlers(){
+    var date = currentViewDate; if(!date) return;
+    // 헤더 골프장명 옆 일괄삭제는 build에서 직접 표시. 여기선 클릭 위임.
+    var result = document.getElementById('result');
+    result.querySelectorAll('.cell-del').forEach(function(x){
+      x.onclick=function(e){
+        e.stopPropagation();
+        var course=this.getAttribute('data-course'), band=this.getAttribute('data-band');
+        deleteBandValue(date, course, band);
+      };
+    });
+    result.querySelectorAll('.course-del').forEach(function(x){
+      x.onclick=function(e){
+        e.stopPropagation();
+        var course=this.getAttribute('data-course');
+        if(confirm(date+' 의 '+course+' 데이터를 모두 삭제할까요?')) deleteCourseAll(date, course);
+      };
+    });
+  }
+
+  // 특정 날짜·골프장·시간대 한 칸 삭제 (최신 시점 텍스트에서 그 시간대 줄 제거)
+  function deleteBandValue(date, course, band){
+    var fl=firstLastStamps(date); var stamp=fl.last; if(!stamp) return;
+    var db=readDB(); var slot=db[date] && db[date][stamp] && db[date][stamp][course];
+    if(!slot) return;
+    var hh=band.slice(0,2);
+    var kept=(slot.text||'').split(/\r?\n/).filter(function(line){
+      var m=line.match(/\b([01]?\d|2[0-3]):[0-5]\d\b/);
+      return !(m && m[0].slice(0,2)===hh);
+    });
+    if(kept.join('\n').trim()) db[date][stamp][course]={text:kept.join('\n')};
+    else delete db[date][stamp][course];
+    writeDB(db); refreshAll();
+  }
+  function deleteCourseAll(date, course){
+    var fl=firstLastStamps(date); var db=readDB();
+    // 모든 시점에서 그 골프장 제거
+    if(db[date]){ Object.keys(db[date]).forEach(function(st){ if(db[date][st]) delete db[date][st][course]; }); }
+    writeDB(db); refreshAll();
+  }
+
+  function escapeHtml(s){ return String(s).replace(/[&<>"]/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+  // ── 가격 추이 보기: 한 골프장의 시간대(행) × 날짜(열) ──────────────
+  function allCourseNames(){
+    // 정식 5개만 (엉뚱한 이름 무시)
+    return DEFAULT_NAMES.slice();
+  }
+
+  function buildTrend(){
+    document.getElementById('export').disabled = true;
+    var picker = document.getElementById('trendPicker');
+    if(picker) picker.style.display='none';   // 골프장 선택 불필요(전부 표시)
+
+    // 선택한 날짜가 속한 한 주(월~일)
+    function weekRange(dateStr){
+      var p=dateStr.split('-'); var dt=new Date(+p[0],+p[1]-1,+p[2]);
+      var dow=dt.getDay(); var off=(dow===0?-6:1-dow);
+      var mon=new Date(dt); mon.setDate(dt.getDate()+off);
+      var sun=new Date(mon); sun.setDate(mon.getDate()+6);
+      function f(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+      return {mon:f(mon), sun:f(sun)};
+    }
+    var baseDate = currentViewDate || datesInDB().slice(-1)[0] || '';
+    if(!baseDate){
+      document.getElementById('result-title').style.display='none';
+      document.getElementById('result').innerHTML='<div class="empty">날짜를 먼저 선택하세요. 달력에서 보고 싶은 주의 날짜를 누르면 그 주(월~일) 그린피가 나옵니다.</div>';
+      document.getElementById('result-note').textContent='';
+      return;
+    }
+    var wk = weekRange(baseDate);
+    var allDates = datesInDB();
+    var dates = allDates.filter(function(d){ return d>=wk.mon && d<=wk.sun; });
+
+    if(!dates.length){
+      document.getElementById('result-title').textContent='요일별 비교  ·  '+wk.mon+' ~ '+wk.sun;
+      document.getElementById('result-title').style.display='';
+      document.getElementById('result').innerHTML='<div class="empty">이 주('+wk.mon+' ~ '+wk.sun+')에 수집된 데이터가 없습니다.</div>';
+      document.getElementById('result-note').textContent='';
+      return;
+    }
+
+    function kk(n){ return Math.round(n/1000); }
+    function rng(vals){ if(!vals.length) return ''; var lo=Math.min.apply(null,vals),hi=Math.max.apply(null,vals); return lo===hi?''+kk(lo):kk(lo)+'-'+kk(hi); }
+
+    // 그 주의 월~일 날짜 배열 (index 0=월 ... 6=일)
+    var WK=['월','화','수','목','금','토','일'];
+    var mp=wk.mon.split('-'); var monDate=new Date(+mp[0],+mp[1]-1,+mp[2]);
+    var weekDays=[];
+    for(var wi=0;wi<7;wi++){ var dd=new Date(monDate); dd.setDate(monDate.getDate()+wi);
+      weekDays.push(dd.getFullYear()+'-'+String(dd.getMonth()+1).padStart(2,'0')+'-'+String(dd.getDate()).padStart(2,'0')); }
+
+    // 동적 요일 그룹: 기본 월 / 화-목 / 금 / 토 / 일. 공휴일 낀 요일은 단독 분리 + 이름표.
+    var baseGroups=[{days:[0]},{days:[1,2,3]},{days:[4]},{days:[5]},{days:[6]}];
+    var GROUPS=[];
+    baseGroups.forEach(function(g){
+      var run=[];
+      function flush(){ if(run.length){ var lab=run.length===1?WK[run[0]]:WK[run[0]]+'-'+WK[run[run.length-1]]; GROUPS.push({label:lab,days:run.slice()}); run=[]; } }
+      g.days.forEach(function(off){
+        if(isHoliday(weekDays[off])){ flush(); GROUPS.push({label:WK[off],days:[off],holiday:holidayName(weekDays[off])}); }
+        else run.push(off);
+      });
+      flush();
+    });
+
+    var courses = DEFAULT_NAMES.filter(function(n){ return n!=='클럽72(오션)'; });
+    var bands = FIXED_BANDS.map(function(b){return b.band;});
+    var partOf={}; FIXED_BANDS.forEach(function(b){ partOf[b.band]=b.part; });
+
+    // 각 날짜의 골프장별 최신 수집분을 집계 (수집일이 골프장마다 달라도 각자 최신 유지)
+    var perDate = {};
+    dates.forEach(function(d){
+      var inbox = latestByCourse(d);
+      perDate[d]={};
+      courses.forEach(function(c){ perDate[d][c] = inbox[c] ? aggregate(parseCourse(inbox[c].text||'')) : {}; });
+    });
+
+    // (골프장, 시간대, 그룹) → 값 모음. 그룹의 요일오프셋에 해당하는 날짜만.
+    function valuesFor(course, band, group){
+      var out=[];
+      group.days.forEach(function(off){
+        var d=weekDays[off];
+        var cell = perDate[d] && perDate[d][course] && perDate[d][course][band];
+        if(cell && cell.minVal!=null) out.push(cell.minVal);
+      });
+      return out;
+    }
+
+    var G = GROUPS.length;
+    var cols = '<col class="col-part"><col class="col-band">';
+    courses.forEach(function(){ for(var i=0;i<G;i++) cols += '<col class="col-trend">'; });
+
+    var head1 = '<th rowspan="2">부</th><th rowspan="2">시간대</th>'+
+      courses.map(function(c){return '<th colspan="'+G+'" class="course-head">'+escapeHtml(c)+'</th>';}).join('');
+    function mdOf(off){ var p=weekDays[off].split('-'); return (+p[1])+'/'+(+p[2]); }
+    function groupDateLabel(g){
+      if(g.days.length===1) return mdOf(g.days[0]);
+      return mdOf(g.days[0])+'~'+mdOf(g.days[g.days.length-1]);
+    }
+    function isWeekendGroup(g){ return g.label==='토' || g.label==='일' || /^토/.test(g.label) || /^일/.test(g.label); }
+    function isWk(i){ var g=GROUPS[i]; return g && (isWeekendGroup(g)||g.holiday); }
+    // 주말/공휴일 묶음의 양끝 클래스 계산
+    function wkClass(i){
+      if(!isWk(i)) return '';
+      var cls=' weekend';
+      if(!isWk(i-1)) cls+=' wkstart';
+      if(!isWk(i+1)) cls+=' wkend';
+      return cls;
+    }
+    var head2 = courses.map(function(){
+      return GROUPS.map(function(g,gi){
+        var dlab = '<span class="grp-date">'+groupDateLabel(g)+'</span>';
+        var lbl = g.holiday ? g.label+'<span class="hol-tag">'+escapeHtml(g.holiday)+'</span>' : g.label;
+        return '<th class="grp-head col-hi'+(g.holiday?' hol':'')+wkClass(gi)+'" data-gi="'+gi+'">'+dlab+lbl+'</th>';
+      }).join('');
+    }).join('');
+
+    var html='<div class="matrix-wrap trend-wrap"><table>'+
+      '<colgroup>'+cols+'</colgroup>'+
+      '<thead><tr>'+head1+'</tr><tr>'+head2+'</tr></thead><tbody>';
+
+    var lastPart=null;
+    bands.forEach(function(band){
+      var p=partOf[band];
+      var isPartStart=(p!==lastPart);
+      html+='<tr'+(isPartStart?' class="part-start"':'')+'>';
+      if(isPartStart){
+        var span=bands.filter(function(b){return partOf[b]===p;}).length;
+        html+='<td class="part-cell" rowspan="'+span+'">'+p+'</td>';
+        lastPart=p;
+      }
+      html+='<td class="band-cell">'+band+'</td>';
+      courses.forEach(function(course){
+        GROUPS.forEach(function(g,gi){
+          var vals=valuesFor(course, band, g);
+          html+='<td class="val col-hi'+(g.holiday?' hol-col':'')+wkClass(gi)+'" data-gi="'+gi+'">'+rng(vals)+'</td>';
+        });
+      });
+      html+='</tr>';
+    });
+    html+='</tbody></table></div>';
+
+    document.getElementById('result-title').textContent='요일별 비교  ·  '+wk.mon+' ~ '+wk.sun;
+    document.getElementById('result-title').style.display='';
+    document.getElementById('result').innerHTML=html;
+    fitTrendTable();
+    attachColHighlight();
+    document.getElementById('result-note').textContent=
+      '※ 선택한 주('+wk.mon+'~'+wk.sun+')의 요일별 그린피(천 단위 생략). 같은 묶음에 여러 날이면 최저-최고 범위. 빨간날은 해당 요일에 공휴일명이 표시됩니다.';
+  }
+
+  // 요일별 표가 칸을 넘치면 글자를 단계적으로 줄임
+  // 요일 열 클릭 → 모든 골프장의 같은 요일 강조
+  function attachColHighlight(){
+    var wrap=document.querySelector('#result .trend-wrap');
+    if(!wrap) return;
+    function setHi(gi){
+      wrap.querySelectorAll('.col-hi.hi').forEach(function(el){ el.classList.remove('hi'); });
+      if(gi==null) return;
+      wrap.querySelectorAll('.col-hi[data-gi="'+gi+'"]').forEach(function(el){ el.classList.add('hi'); });
+    }
+    wrap.querySelectorAll('.col-hi').forEach(function(el){
+      el.style.cursor='pointer';
+      el.onclick=function(){
+        var gi=el.getAttribute('data-gi');
+        var already=el.classList.contains('hi');
+        setHi(already?null:gi);   // 다시 누르면 해제
+      };
+    });
+  }
+  function fitTrendTable(){
+    var wrap = document.querySelector('#result .trend-wrap');
+    if(!wrap) return;
+    var table = wrap.querySelector('table');
+    wrap.classList.remove('shrink1','shrink2');
+    function overflowing(){
+      // 표가 컨테이너보다 넓거나, 값 셀이 잘리면 넘침으로 판단
+      if(table && table.scrollWidth > wrap.clientWidth + 1) return true;
+      var cells = wrap.querySelectorAll('td.val');
+      for(var i=0;i<cells.length;i++){ if(cells[i].scrollWidth > cells[i].clientWidth + 1) return true; }
+      return false;
+    }
+    if(overflowing()){ wrap.classList.add('shrink1'); }
+    if(overflowing()){ wrap.classList.remove('shrink1'); wrap.classList.add('shrink2'); }
+  }
+  window.addEventListener('resize', function(){ if(viewMode==='trend') fitTrendTable(); });
+
+  function exportXlsx(){
+    if(!lastMatrix) return;
+    var two = lastMatrix.twoStamps;
+    var date = currentViewDate || '';
+    var partOf = {};
+    FIXED_BANDS.forEach(function(b){ partOf[b.band] = b.part; });
+    var aoa = [];
+    var titleLine = date + (two ? ('  (최초 '+lastMatrix.fl.first+' → 최신 '+lastMatrix.fl.last+')') : '');
+    if(titleLine.trim()) aoa.push([titleLine]);
+    var header = ['부','시간대'].concat(lastMatrix.courses.map(function(c){return c.name;}));
+    aoa.push(header);
+    function fmt(cell){
+      if(!cell) return '';
+      var t = (cell.normal||'');
+      if(cell.special) t += (t?' ':'') + '(특가 '+cell.special+')';
+      return t;
+    }
+    lastMatrix.bands.forEach(function(key){
+      var row = [partOf[key], key];
+      lastMatrix.courses.forEach(function(c){
+        var cf=c.aggFirst[key], cl=c.aggLast[key];
+        if(two && cf && cl && cf.minVal!=null && cl.minVal!=null && cf.minVal!==cl.minVal){
+          row.push(fmt(cf)+' → '+fmt(cl));   // 최초 → 최신
+        } else {
+          row.push(fmt(cl||cf));
+        }
+      });
+      aoa.push(row);
+    });
+    var ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = header.map(function(_,i){ return {wch: i<2?9:18}; });
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '그린피비교');
+    var fname = '그린피비교' + (date? '_'+date:'') + '.xlsx';
+    XLSX.writeFile(wb, fname);
+  }
+
+  document.getElementById('addCourse').onclick = function(){ addCourseCard(''); };
+  document.getElementById('build').onclick = build;
+  document.getElementById('export').onclick = exportXlsx;
+
+  // "직접 입력" 토글: 골프장 붙여넣기 칸을 펼치거나 접는다
+  var manualOpen = false;
+  // ── 설정 모달 (탭: 부·시간대 / 수동입력 / 휴일사유) ──────────────
+  var draftRules = null;
+  function hourOptions(sel){
+    var s='';
+    for(var h=4;h<=23;h++){ s+='<option value="'+h+'"'+(h===sel?' selected':'')+'>'+('0'+h).slice(-2)+'시</option>'; }
+    return s;
+  }
+  function renderRuleCards(){
+    var wrap=document.getElementById('partRuleWrap');
+    wrap.innerHTML = draftRules.map(function(rule,ri){
+      var isBase = !rule.ranged;
+      var head = isBase
+        ? '<div class="rule-head"><span class="rule-base">기본 (모든 날짜)</span></div>'
+        : '<div class="rule-head">기간 <input type="date" data-ri="'+ri+'" data-rf="from" value="'+(rule.from||'')+'"> ~ <input type="date" data-ri="'+ri+'" data-rf="to" value="'+(rule.to||'')+'"><button class="rule-del" data-ri="'+ri+'" title="이 규칙 삭제">×</button></div>';
+      var parts = rule.parts.map(function(p,pi){
+        return '<div class="part-row">'+
+          '<input class="pname" data-ri="'+ri+'" data-pi="'+pi+'" data-f="part" value="'+escapeHtml(p.part)+'">'+
+          '<select data-ri="'+ri+'" data-pi="'+pi+'" data-f="from">'+hourOptions(p.from)+'</select>'+
+          '<span class="sep">~</span>'+
+          '<select data-ri="'+ri+'" data-pi="'+pi+'" data-f="to">'+hourOptions(p.to)+'</select>'+
+          '<button class="del" data-ri="'+ri+'" data-pi="'+pi+'" title="이 부 삭제">×</button>'+
+        '</div>';
+      }).join('');
+      return '<div class="rule-card">'+head+parts+
+        '<button class="tbtn" data-addpart="'+ri+'" style="margin-top:4px;font-size:12px;padding:5px 10px"><span class="tbtn-ic">＋</span>부 추가</button></div>';
+    }).join('');
+
+    wrap.querySelectorAll('input.pname,select[data-f]').forEach(function(el){
+      el.onchange=function(){ var ri=+el.getAttribute('data-ri'),pi=+el.getAttribute('data-pi'),f=el.getAttribute('data-f');
+        draftRules[ri].parts[pi][f]=(f==='part')?el.value:parseInt(el.value,10); };
+    });
+    wrap.querySelectorAll('input[data-rf]').forEach(function(el){
+      el.onchange=function(){ var ri=+el.getAttribute('data-ri'),rf=el.getAttribute('data-rf'); draftRules[ri][rf]=el.value; };
+    });
+    wrap.querySelectorAll('.del[data-pi]').forEach(function(b){
+      b.onclick=function(){ var ri=+b.getAttribute('data-ri'),pi=+b.getAttribute('data-pi'); draftRules[ri].parts.splice(pi,1); renderRuleCards(); };
+    });
+    wrap.querySelectorAll('.rule-del').forEach(function(b){
+      b.onclick=function(){ draftRules.splice(+b.getAttribute('data-ri'),1); renderRuleCards(); };
+    });
+    wrap.querySelectorAll('[data-addpart]').forEach(function(b){
+      b.onclick=function(){ var ri=+b.getAttribute('data-addpart'); var ps=draftRules[ri].parts; var last=ps[ps.length-1];
+        var nf=last?Math.min(last.to+1,23):5; ps.push({part:(ps.length+1)+'부',from:nf,to:Math.min(nf+4,23)}); renderRuleCards(); };
+    });
+  }
+  function renderHolReasons(){
+    var wrap=document.getElementById('holReasonWrap'); if(!wrap) return;
+    var u=readHol();
+    // 사용자 지정 공휴일(true) 목록
+    var keys=Object.keys(u).filter(function(k){return u[k]===true;}).sort();
+    if(!keys.length){ wrap.innerHTML='<div style="font-size:12.5px;color:var(--text-muted)">직접 지정한 공휴일이 없습니다. 달력에서 날짜를 우클릭해 지정하세요.</div>'; return; }
+    var names=readHolNames();
+    wrap.innerHTML = keys.map(function(d){
+      return '<div class="hol-reason-row"><span class="hd">'+d+'</span>'+
+        '<input data-d="'+d+'" value="'+escapeHtml(names[d]||'')+'" placeholder="사유 (예: 임시공휴일)"></div>';
+    }).join('');
+    wrap.querySelectorAll('input[data-d]').forEach(function(el){
+      el.onchange=function(){ var nm=readHolNames(); nm[el.getAttribute('data-d')]=el.value; writeHolNames(nm); refreshAll(); };
+    });
+  }
+  function switchTab(name){
+    document.querySelectorAll('.mtab').forEach(function(t){ t.classList.toggle('on', t.getAttribute('data-tab')===name); });
+    document.querySelectorAll('.mtab-panel').forEach(function(p){ p.style.display = (p.getAttribute('data-panel')===name)?'':'none'; });
+    document.getElementById('settingsSave').style.display = (name==='parts')?'':'none';
+    document.getElementById('settingsReset').style.display = (name==='parts')?'':'none';
+    if(name==='holiday') renderHolReasons();
+  }
+  function openSettings(){
+    draftRules = JSON.parse(JSON.stringify(readRules()));
+    renderRuleCards();
+    switchTab('parts');
+    document.getElementById('settingsModal').style.display='flex';
+  }
+  function closeSettings(){ document.getElementById('settingsModal').style.display='none'; }
+  var osBtn=document.getElementById('openSettings'); if(osBtn) osBtn.onclick=openSettings;
+  var scBtn=document.getElementById('settingsClose'); if(scBtn) scBtn.onclick=closeSettings;
+  var scc=document.getElementById('settingsCancel'); if(scc) scc.onclick=closeSettings;
+  var sov=document.getElementById('settingsModal'); if(sov) sov.onclick=function(e){ if(e.target===sov) closeSettings(); };
+  document.querySelectorAll('.mtab').forEach(function(t){ t.onclick=function(){ switchTab(t.getAttribute('data-tab')); }; });
+  var arBtn=document.getElementById('addRule'); if(arBtn) arBtn.onclick=function(){
+    draftRules.push({ranged:true, from:'', to:'', parts:DEFAULT_PARTS.map(function(p){return {part:p.part,from:p.from,to:p.to};})});
+    renderRuleCards();
+  };
+  var smBtn=document.getElementById('startManual'); if(smBtn) smBtn.onclick=function(){
+    closeSettings();
+    manualOpen = true;
+    document.getElementById('courses').style.display = 'grid';
+    document.getElementById('manualExtra').style.display = 'block';
+    document.getElementById('manualNote').style.display = 'none';
+    var tm=document.getElementById('toggleManual'); if(tm) tm.classList.add('on');
+  };
+  var srBtn=document.getElementById('settingsReset'); if(srBtn) srBtn.onclick=function(){
+    draftRules = defaultRules(); renderRuleCards();
+  };
+  var ssBtn=document.getElementById('settingsSave'); if(ssBtn) ssBtn.onclick=function(){
+    // 검증: 각 규칙에 최소 1부
+    for(var i=0;i<draftRules.length;i++){ if(!draftRules[i].parts.length){ alert('각 규칙에 최소 1개의 부가 필요합니다.'); return; } }
+    writeRules(draftRules);
+    closeSettings();
+    refreshAll();
+  };
+
+  document.getElementById('toggleManual').onclick = function(){
+    if(viewMode!=='compare'){ viewMode='compare'; setModeBtns(); }
+    editMode = !editMode;
+    this.classList.toggle('on', editMode);
+    refreshAll();
+  };
+
+  // ── 인라인 편집 모드: 날짜별 비교표 칸을 직접 수정 ──────────────
+  var editMode = false;
+  var teBtn=document.getElementById('toggleEdit');
+  if(teBtn) teBtn.onclick = function(){
+    if(viewMode!=='compare'){ viewMode='compare'; setModeBtns(); }
+    editMode = !editMode;
+    this.classList.toggle('on', editMode);
+    refreshAll();
+  };
+
+  function toWon(s){
+    s = String(s||'').replace(/[^\d]/g,'');
+    if(!s) return null;
+    var n = parseInt(s,10);
+    if(n <= 0) return null;
+    if(n < 10000) n = n*1000;   // 천 단위 생략 입력(280, 250) → 280000
+    return n;
+  }
+
+  // 편집 모드에서 비교표의 입력칸들을 읽어 저장
+  function saveInline(){
+    var date = currentViewDate;
+    if(!date) return;
+    var fl = firstLastStamps(date);
+    var stamp = fl.last || (new Date()).toISOString().slice(0,10);
+    var db = readDB();
+    if(!db[date]) db[date]={};
+    if(!db[date][stamp]) db[date][stamp]={};
+
+    DEFAULT_NAMES.forEach(function(course){
+      var cells = document.querySelectorAll('#result input[data-course="'+CSS.escape(course)+'"]');
+      if(!cells.length) return;
+      var byBand={};
+      cells.forEach(function(inp){
+        var band=inp.getAttribute('data-band'), f=inp.getAttribute('data-f');
+        byBand[band]=byBand[band]||{};
+        if(f==='tw') byBand[band].tw=inp.checked; else byBand[band][f]=inp.value;
+      });
+      var lines=[];
+      Object.keys(byBand).forEach(function(band){
+        var v=byBand[band], hh=band.slice(0,2), nm=String(v.normal||'').trim();
+        if(!nm) return;
+        var rangeM=nm.match(/^(\d+)\s*-\s*(\d+)$/), sp=toWon(v.special), twTag=v.tw?' #TW':'';
+        if(rangeM){
+          var a=toWon(rangeM[1]),b=toWon(rangeM[2]);
+          lines.push(hh+':00 18홀 '+a.toLocaleString()+'원'+(sp?' '+sp.toLocaleString()+'원':'')+twTag);
+          lines.push(hh+':30 18홀 '+b.toLocaleString()+'원'+twTag);
+        } else {
+          var n=toWon(nm); if(n==null) return;
+          lines.push(hh+':00 18홀 '+n.toLocaleString()+'원'+(sp?' '+sp.toLocaleString()+'원':'')+twTag);
+        }
+      });
+      if(lines.length) db[date][stamp][course]={text:lines.join('\n')};
+      else if(db[date][stamp]) delete db[date][stamp][course];
+    });
+    writeDB(db);
+    editMode=false;
+    var tb=document.getElementById('toggleEdit'); if(tb) tb.classList.remove('on'); var tm=document.getElementById('toggleManual'); if(tm) tm.classList.remove('on');
+    refreshAll();
+  }
+
+  // 한 칸의 현재 값(편집 입력칸 채우기용)
+  function bandEditValue(date, course, band){
+    var fl=firstLastStamps(date); var inbox=fl.last?inboxAt(date,fl.last):{};
+    var slot=inbox[course];
+    var agg=slot?aggregate(parseCourse(slot.text||'')):{};
+    var cell=agg[band];
+    return cell?{normal:cell.normal||'',special:cell.special||'',tw:!!cell.tw}:{normal:'',special:'',tw:false};
+  }
+
+
+  // 날짜 선택 → "2026-06-28(일)" 형태 라벨 생성
+  var WEEK = ['일','월','화','수','목','금','토'];
+  var currentDateLabel = '';
+  document.getElementById('datePicker').addEventListener('change', function(){
+    var v = this.value; // YYYY-MM-DD
+    if(!v){ currentDateLabel=''; document.getElementById('dateLabel').textContent=''; return; }
+    var parts = v.split('-');
+    var dt = new Date(+parts[0], +parts[1]-1, +parts[2]);
+    currentDateLabel = v + '(' + WEEK[dt.getDay()] + ')';
+    document.getElementById('dateLabel').textContent = '선택: ' + currentDateLabel;
+  });
+  // export 등에서 쓰도록 노출
+  window.__getDateLabel = function(){ return currentDateLabel; };
+
+  // 초기 칸 만들기
+  DEFAULT_NAMES.forEach(function(n){ addCourseCard(n); });
+
+  // ── 북마클릿 자동 수신 + 날짜별 영구 저장 ──────────────────────────
+  var DB_KEY = '__gf_db__';
+  var HOL_KEY = '__gf_holidays__';   // 사용자 공휴일 지정/해제 저장
+  var currentViewDate = '';   // 화면에 보고 있는 날짜
+
+  // 2026년 기본 공휴일
+  var HOLIDAYS = {
+    '2026-01-01':'신정',
+    '2026-02-16':'설날 연휴','2026-02-17':'설날','2026-02-18':'설날 연휴',
+    '2026-03-01':'삼일절','2026-03-02':'삼일절 대체',
+    '2026-05-01':'근로자의날','2026-05-05':'어린이날',
+    '2026-05-24':'석가탄신일','2026-05-25':'석탄일 대체',
+    '2026-06-03':'지방선거','2026-06-06':'현충일',
+    '2026-08-15':'광복절','2026-08-17':'광복절 대체',
+    '2026-09-24':'추석 연휴','2026-09-25':'추석','2026-09-26':'추석 연휴',
+    '2026-10-03':'개천절','2026-10-05':'개천절 대체','2026-10-09':'한글날',
+    '2026-12-25':'성탄절'
+  };
+  // 사용자 지정/해제: { '2026-07-15': true(공휴일추가) | false(공휴일해제) }
+  function readHol(){ try { return JSON.parse(localStorage.getItem(HOL_KEY)||'{}'); } catch(e){ return {}; } }
+  function writeHol(o){
+    try { localStorage.setItem(HOL_KEY, JSON.stringify(o)); } catch(e){}
+    if(window.gfCloud && window.gfCloud.ready && window.gfCloud.saveHol){ window.gfCloud.saveHol(o); }
+  }
+  function isHoliday(dateStr){
+    var u = readHol();
+    if(dateStr in u) return u[dateStr];        // 사용자 지정 우선
+    return dateStr in HOLIDAYS;
+  }
+  var HOLNAME_KEY = '__gf_holnames__';
+  function readHolNames(){ try { return JSON.parse(localStorage.getItem(HOLNAME_KEY)||'{}'); } catch(e){ return {}; } }
+  function writeHolNames(o){
+    try { localStorage.setItem(HOLNAME_KEY, JSON.stringify(o)); } catch(e){}
+    if(window.gfCloud && window.gfCloud.ready && window.gfCloud.saveHolNames){ window.gfCloud.saveHolNames(o); }
+  }
+  function holidayName(dateStr){
+    var nm = readHolNames();
+    if(nm[dateStr]) return nm[dateStr];          // 사용자가 적은 사유 우선
+    var u = readHol();
+    if(dateStr in u){ return u[dateStr] ? (HOLIDAYS[dateStr]||'휴일(지정)') : ''; }
+    return HOLIDAYS[dateStr] || '';
+  }
+
+  function readDB(){
+    try { return JSON.parse(localStorage.getItem(DB_KEY) || '{}'); }
+    catch(e){ return {}; }
+  }
+  function writeDB(obj){
+    try { localStorage.setItem(DB_KEY, JSON.stringify(obj)); } catch(e){}
+    // 클라우드에도 저장 (연결됐을 때만)
+    if(window.gfCloud && window.gfCloud.ready){ window.gfCloud.save(obj); }
+  }
+  function datesInDB(){
+    return Object.keys(readDB()).sort();
+  }
+  function stampsOf(date){
+    var byDate = readDB()[date] || {};
+    return Object.keys(byDate).sort();
+  }
+  function firstLastStamps(date){
+    var s = stampsOf(date);
+    return { first: s[0]||null, last: s[s.length-1]||null, count: s.length };
+  }
+  function inboxAt(date, stamp){
+    var byDate = readDB()[date] || {};
+    return (stamp && byDate[stamp]) ? byDate[stamp] : {};
+  }
+  function inboxOf(date){
+    var fl = firstLastStamps(date);
+    return fl.last ? inboxAt(date, fl.last) : {};
+  }
+  // 골프장별로 '그 골프장의 가장 최근 수집분'을 모아서 반환.
+  // 수집일(stamp)이 골프장마다 달라도 각자 최신 것을 살려 표시(데이터 사라짐 방지).
+  function latestByCourse(date){
+    var byDate = readDB()[date] || {};
+    var stamps = Object.keys(byDate).sort();   // 오래된→최신
+    var out = {};
+    stamps.forEach(function(st){
+      var inbox = byDate[st] || {};
+      Object.keys(inbox).forEach(function(course){
+        out[course] = inbox[course];           // 최신이 뒤에서 덮음
+      });
+    });
+    return out;
+  }
+  // 골프장별 '가장 오래된 수집분' (날짜별 비교의 최초수집용)
+  function firstByCourse(date){
+    var byDate = readDB()[date] || {};
+    var stamps = Object.keys(byDate).sort();   // 오래된→최신
+    var out = {};
+    stamps.forEach(function(st){
+      var inbox = byDate[st] || {};
+      Object.keys(inbox).forEach(function(course){
+        if(!(course in out)) out[course] = inbox[course];   // 처음(가장 오래된) 것만
+      });
+    });
+    return out;
+  }
+
+  function fillCardByName(name, text){
+    var cards = Array.prototype.slice.call(coursesEl.querySelectorAll('.ccard'));
+    var target = null;
+    cards.forEach(function(card){
+      if(card.querySelector('.name').value.trim() === name) target = card;
+    });
+    if(!target){
+      for(var i=0;i<cards.length;i++){
+        if(!cards[i].querySelector('textarea').value.trim()){ target = cards[i]; break; }
+      }
+      if(target) target.querySelector('.name').value = name;
+    }
+    if(!target){ addCourseCard(name); target = coursesEl.lastElementChild; }
+    var ta = target.querySelector('textarea');
+    ta.value = text;
+    ta.dispatchEvent(new Event('input'));
+  }
+
+  function loadDateIntoCards(date){
+    Array.prototype.slice.call(coursesEl.querySelectorAll('.ccard textarea')).forEach(function(ta){
+      ta.value=''; ta.dispatchEvent(new Event('input'));
+    });
+    var inbox = inboxOf(date);
+    Object.keys(inbox).forEach(function(name){
+      fillCardByName(name, inbox[name].text || '');
+    });
+    var dp = document.getElementById('datePicker');
+    if(date){ dp.value = date; dp.dispatchEvent(new Event('change')); }
+  }
+
+  function handleIncomingHash(){
+    var h = location.hash || '';
+    var m = h.match(/[#&]gf=([^&]+)/);
+    if(!m) return null;
+    var payload;
+    try { payload = JSON.parse(decodeURIComponent(m[1])); }
+    catch(e){
+      // URL이 잘려 JSON이 깨진 경우 — 조용히 버리지 않고 안내
+      history.replaceState(null, '', location.pathname + location.search);
+      alert('수집 데이터를 불러오지 못했어요.\n\n예약 시간이 많은 날은 주소(URL)가 너무 길어져 데이터가 잘릴 수 있습니다. 다시 한 번 수집해 보거나, PC 브라우저에서 시도해 주세요.');
+      return null;
+    }
+    if(!payload || !payload.course) return null;
+    var date = payload.date || (new Date()).toISOString().slice(0,10);
+    var stamp = payload.collectedAt || (new Date()).toISOString().slice(0,10);
+    var db = readDB();
+    if(!db[date]) db[date] = {};
+    if(!db[date][stamp]) db[date][stamp] = {};
+    var incoming = payload.text || '';
+
+    if(payload.course === '클럽72'){
+      // 클럽72 구조: 시간 / 코스명 / 가격 이 줄로 나뉨. 코스명은 시간 다음 처음 한 번만 인식.
+      var TRE = /\b([01]?\d|2[0-3]):[0-5]\d\b/;
+      var COURSE_RE = /레이크\s*(IN|OUT)|클래식\s*(IN|OUT)|오션\s*(IN|OUT)/;
+      function mny(s){ s=String(s).replace(/[^\d]/g,''); if(!s) return null; var n=parseInt(s,10); return (n<10000||n>2000000)?null:n; }
+      var lines = incoming.split(/\r?\n/).map(function(l){return l.trim();}).filter(function(l){return l;});
+      var lc=[], oc=[];
+      for(var i=0;i<lines.length;i++){
+        var tm = lines[i].match(TRE);
+        if(!tm) continue;
+        var time = tm[0], course='', fees=[];
+        var isTW = /\bTW\b/i.test(lines[i]);
+        for(var j=i+1; j<lines.length && j<i+5; j++){
+          if(TRE.test(lines[j])) break;                       // 다음 시간 전까지만
+          if(!course && COURSE_RE.test(lines[j])) course = lines[j];  // 처음 한 번만
+          if(/일몰라운드/.test(lines[j])) isTW = true;
+          var m = mny(lines[j]); if(m!==null) fees.push(m);
+        }
+        if(!course || !fees.length) continue;                 // 코스명·가격 둘 다 있어야 채택
+        var rebuilt = time + ' 18홀 ' + fees.join(' ') + '원' + (isTW?' #TW':'');
+        if(/오션/.test(course)) oc.push(rebuilt);
+        else if(/레이크|클래식/.test(course)) lc.push(rebuilt);
+      }
+      var freshDB = readDB();
+      if(!freshDB[date]) freshDB[date] = {};
+      if(!freshDB[date][stamp]) freshDB[date][stamp] = {};
+      freshDB[date][stamp]['클럽72(클래식/레이크)'] = { text: lc.join('\n') };
+      freshDB[date][stamp]['클럽72(오션)'] = { text: oc.join('\n') };
+      writeDB(freshDB);
+      history.replaceState(null, '', location.pathname + location.search);
+      return date;
+    }
+
+    // 저장 직전 최신 DB를 다시 읽어 그 위에 얹는다(동시 수집 경합 방지)
+    var freshDB = readDB();
+    if(!freshDB[date]) freshDB[date] = {};
+    if(!freshDB[date][stamp]) freshDB[date][stamp] = {};
+    var slot = freshDB[date][stamp][payload.course];
+    if(payload.append && slot && slot.text){
+      if(slot.text.indexOf(incoming) === -1){
+        freshDB[date][stamp][payload.course] = { text: slot.text + '\n' + incoming };
+      }
+    } else {
+      freshDB[date][stamp][payload.course] = { text: incoming };
+    }
+    writeDB(freshDB);
+    history.replaceState(null, '', location.pathname + location.search);
+    return date;
+  }
+
+  // ── 날짜 탭 + 보기 모드 UI ────────────────────────────────────────
+  var viewMode = 'compare';
+  var calYear, calMonth;
+
+  function initCalMonth(){
+    var base = currentViewDate || (datesInDB().slice(-1)[0]) || (new Date()).toISOString().slice(0,10);
+    var p = base.split('-');
+    calYear = +p[0]; calMonth = +p[1]-1;
+  }
+
+  function renderCalendar(){
+    var WEEK=['일','월','화','수','목','금','토'];
+    document.getElementById('calTitle').textContent = calYear + '년 ' + (calMonth+1) + '월';
+    var first = new Date(calYear, calMonth, 1);
+    var startDow = first.getDay();
+    var daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
+    var db = readDB();
+
+    var head = WEEK.map(function(w,i){ return '<div class="caldow'+(i===0?' sun':i===6?' sat':'')+'">'+w+'</div>'; }).join('');
+
+    var cells = [];
+    for(var i=0;i<startDow;i++) cells.push('<div class="calcell empty"></div>');
+    var monthHols = [];
+    for(var d=1; d<=daysInMonth; d++){
+      var ds = calYear + '-' + String(calMonth+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+      var dow = new Date(calYear, calMonth, d).getDay();
+      var has = db[ds] && Object.keys(db[ds]).length;
+      var hol = isHoliday(ds);
+      var hname = holidayName(ds);
+      if(hol && hname) monthHols.push({d:d, name:hname});
+      var cls = 'calcell' + (dow===0||hol?' sun':dow===6?' sat':'') + (has?' has':'') + (hol?' holiday':'') + (ds===currentViewDate?' on':'');
+      var delx = has ? '<span class="caldel" data-del="'+ds+'" title="이 날짜 삭제">×</span>' : '';
+      cells.push('<div class="'+cls+'" data-date="'+ds+'" title="'+(hname||'')+(hname?' · ':'')+'우클릭: 공휴일 지정/해제">'+d+delx+'</div>');
+    }
+    var listHtml = monthHols.length
+      ? '<div class="hol-list">'+monthHols.map(function(h){return '<span><b>'+h.d+'일</b> '+escapeHtml(h.name)+'</span>';}).join('')+'</div>'
+      : '';
+    document.getElementById('calGrid').innerHTML =
+      '<div class="calgrid">' + head + cells.join('') + '</div>' + listHtml;
+
+    Array.prototype.slice.call(document.querySelectorAll('.calcell[data-date]')).forEach(function(cell){
+      cell.addEventListener('click', function(e){
+        var del = e.target.getAttribute('data-del');
+        if(del){
+          if(confirm(del + ' 날짜의 수집 데이터를 모두 삭제할까요?')){
+            var db2=readDB(); delete db2[del]; writeDB(db2);
+            if(currentViewDate===del){ var rest=datesInDB(); currentViewDate=rest[rest.length-1]||''; }
+            refreshAll();
+          }
+          e.stopPropagation(); return;
+        }
+        currentViewDate = this.getAttribute('data-date');
+        refreshAll();
+      });
+      // 우클릭(또는 길게 눌러서): 공휴일 지정/해제
+      cell.addEventListener('contextmenu', function(e){
+        e.preventDefault();
+        var ds = this.getAttribute('data-date');
+        var cur = isHoliday(ds);
+        var u = readHol();
+        u[ds] = !cur;   // 토글
+        // 기본 공휴일을 다시 공휴일로 되돌리는 경우엔 키 제거(기본값 사용)
+        if((ds in HOLIDAYS) && u[ds]===true) delete u[ds];
+        if(!(ds in HOLIDAYS) && u[ds]===false) delete u[ds];
+        writeHol(u);
+        refreshAll();
+      });
+    });
+  }
+
+  function refreshAll(){
+    rebuildBands();
+    renderCalendar();
+    loadDateIntoCards(currentViewDate);
+    var lbl='';
+    if(currentViewDate){ var p=currentViewDate.split('-');var dt=new Date(+p[0],+p[1]-1,+p[2]);
+      lbl=currentViewDate+'('+['일','월','화','수','목','금','토'][dt.getDay()]+')'; }
+    document.getElementById('dateLabel').textContent = lbl ? '선택: '+lbl : '날짜를 선택하세요';
+    if(viewMode==='compare'){ build(); }
+    else { buildTrend(); }
+  }
+  window.__refreshAll = refreshAll;
+
+  document.getElementById('calPrev').onclick=function(){ calMonth--; if(calMonth<0){calMonth=11;calYear--;} renderCalendar(); };
+  document.getElementById('calNext').onclick=function(){ calMonth++; if(calMonth>11){calMonth=0;calYear++;} renderCalendar(); };
+
+  var clearBtn = document.getElementById('clearInbox');
+  if(clearBtn) clearBtn.onclick = function(){
+    if(!confirm('수집한 모든 날짜의 데이터를 지울까요?\n(취소를 누르면 현재 보고 있는 날짜만 지웁니다)')){
+      var db=readDB(); delete db[currentViewDate]; writeDB(db);
+      var rest=datesInDB(); currentViewDate=rest[rest.length-1]||'';
+    } else {
+      localStorage.removeItem(DB_KEY); currentViewDate='';
+    }
+    refreshAll();
+  };
+
+  document.getElementById('modeCompare').onclick=function(){ viewMode='compare'; setModeBtns(); refreshAll(); };
+  document.getElementById('modeTrend').onclick=function(){ viewMode='trend'; setModeBtns(); refreshAll(); };
+  function setModeBtns(){
+    document.getElementById('modeCompare').classList.toggle('on', viewMode==='compare');
+    document.getElementById('modeTrend').classList.toggle('on', viewMode==='trend');
+    document.getElementById('trendPicker').style.display = (viewMode==='trend')?'inline-block':'none';
+  }
+
+  var incomingDate = handleIncomingHash();
+  var allDates = datesInDB();
+  currentViewDate = incomingDate || allDates[allDates.length-1] || '';
+  initCalMonth();
+  setModeBtns();
+  refreshAll();
+
+  // ── 클라우드(Firebase) 동기화 ──────────────────────────────────────
+  // 날짜 × 수집시점 × 골프장 단위로 두 DB를 병합 (어느 쪽도 안 사라지게)
+  function mergeDB(a, b){
+    var out = JSON.parse(JSON.stringify(a||{}));
+    Object.keys(b||{}).forEach(function(date){
+      if(!out[date]) out[date] = {};
+      Object.keys(b[date]).forEach(function(stamp){
+        if(!out[date][stamp]) out[date][stamp] = {};
+        Object.keys(b[date][stamp]).forEach(function(course){
+          // 같은 칸이 양쪽에 있으면, 로컬(a)에 없을 때만 클라우드 값 채움
+          if(!out[date][stamp][course]) out[date][stamp][course] = b[date][stamp][course];
+        });
+      });
+    });
+    return out;
+  }
+
+  var fbApplyingRemote = false;
+  function syncWithCloud(){
+    if(!(window.gfCloud && window.gfCloud.ready)) return;
+    window.gfCloud.load().then(function(cloud){
+      var local = readDB();
+      var merged = mergeDB(local, cloud || {});
+      // 로컬에 반영
+      try { localStorage.setItem(DB_KEY, JSON.stringify(merged)); } catch(e){}
+      // 병합 결과를 클라우드에도 올림(로컬에만 있던 것 반영)
+      window.gfCloud.save(merged);
+      // 화면 갱신 (현재 날짜 없으면 최신 날짜로)
+      if(!currentViewDate){ var ds=datesInDB(); currentViewDate=ds[ds.length-1]||''; initCalMonth(); }
+      refreshAll();
+      // 이후 다른 기기 변경 실시간 반영
+      window.gfCloud.subscribe(function(remote){
+        if(fbApplyingRemote) return;
+        var merged2 = mergeDB(readDB(), remote||{});
+        var before = localStorage.getItem(DB_KEY);
+        var after = JSON.stringify(merged2);
+        if(before !== after){
+          fbApplyingRemote = true;
+          try { localStorage.setItem(DB_KEY, after); } catch(e){}
+          refreshAll();
+          fbApplyingRemote = false;
+        }
+      });
+    });
+    // 공휴일 지정 동기화
+    window.gfCloud.loadHol().then(function(cloudHol){
+      if(cloudHol){
+        var localHol = readHol();
+        var mergedHol = {};
+        Object.keys(localHol).forEach(function(k){ mergedHol[k]=localHol[k]; });
+        Object.keys(cloudHol).forEach(function(k){ if(!(k in mergedHol)) mergedHol[k]=cloudHol[k]; });
+        try { localStorage.setItem(HOL_KEY, JSON.stringify(mergedHol)); } catch(e){}
+        window.gfCloud.saveHol(mergedHol);
+        refreshAll();
+      }
+      window.gfCloud.subscribeHol(function(remoteHol){
+        var cur = localStorage.getItem(HOL_KEY)||'{}';
+        var next = JSON.stringify(remoteHol||{});
+        if(cur!==next){ try{ localStorage.setItem(HOL_KEY, next); }catch(e){} refreshAll(); }
+      });
+    });
+  }
+
+  if(window.gfCloud && window.gfCloud.ready){ syncWithCloud(); }
+  else { window.__gfCloudReady = syncWithCloud; }
+})();
+</script>
+</body>
+</html>
