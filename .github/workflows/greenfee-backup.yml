@@ -1,0 +1,24 @@
+name: 그린피 백업
+
+on:
+  schedule:
+    - cron: '7 */2 * * *'     # 2시간마다 (한국시간 기준 매 홀수시 7분)
+  workflow_dispatch:           # Actions 탭에서 수동 실행 가능
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Firebase에서 그린피 데이터 받기
+        run: python3 scripts/backup_firebase.py
+      - name: 바뀐 게 있으면 저장
+        run: |
+          git config user.name  "greenfee-backup"
+          git config user.email "actions@github.com"
+          git add data/
+          git diff --cached --quiet || git commit -m "그린피 자동 백업 $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M')"
+          git push
